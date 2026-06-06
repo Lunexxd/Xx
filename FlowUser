@@ -1,0 +1,82 @@
+        "user-context": UserContext
+    },
+ 
+    flux: {
+        VOICE_STATE_UPDATES({ voiceStates }) {
+            if (settings.store.onlyManualTrigger || !settings.store.followUserId) {
+                return;
+            }
+            for (const { userId, channelId, oldChannelId } of voiceStates) {
+                if (channelId !== oldChannelId) {
+                    const isMe = userId === UserStore.getCurrentUser().id;
+ 
+                    if (settings.store.autoMoveBack && isMe && channelId && oldChannelId) {
+                        triggerFollow();
+                        continue;
+                    }
+ 
+                    if (settings.store.channelFull && !isMe && !channelId && oldChannelId && oldChannelId !== SelectedChannelStore.getVoiceChannelId()) {
+                        const channel = ChannelStore.getChannel(oldChannelId);
+                        const channelVoiceStates = VoiceStateStore.getVoiceStatesForChannel(oldChannelId);
+                        const memberCount = channelVoiceStates ? Object.keys(channelVoiceStates).length : null;
+                        if (channel.userLimit !== 0 && memberCount !== null && memberCount === (channel.userLimit - 1) && !PermissionStore.can(PermissionsBits.MOVE_MEMBERS, channel)) {
+                            const users = Object.values(channelVoiceStates).map(x => x.userId);
+                            if (users.includes(settings.store.followUserId)) {
+                                triggerFollow(oldChannelId);
+                                continue;
+                            }
+                        }
+                    }
+ 
+                    const isFollowed = settings.store.followUserId === userId;
+                    if (!isFollowed) {
+                        continue;
+                    }
+ 
+                    if (channelId) {
+                        triggerFollow(channelId);
+                    } else if (oldChannelId) {
+                        triggerFollow(null);
+                    }
+                }
+            }
+        },
+    },
+ 
+    FollowIndicator() {
+        const { plugins: { FollowUser: { followUserId } } } = useSettings(["plugins.FollowUser.followUserId"]);
+        if (followUserId) {
+            return (
+                <HeaderBarIcon
+                    tooltip={`Following ${UserStore.getUser(followUserId).username} (click to trigger manually, right-click to unfollow)`}
+                    icon={UnfollowIcon}
+                    onClick={() => {
+                        triggerFollow();
+                    }}
+                    onContextMenu={() => {
+                        settings.store.followUserId = "";
+                    }}
+                />
+            );
+        }
+ 
+        return null;
+    },
+ 
+    addIconToToolBar(e) {
+        if (Array.isArray(e.toolbar)) {
+            return e.toolbar.unshift(
+                <ErrorBoundary noop={true} key="follow-indicator">
+                    <this.FollowIndicator/>
+                </ErrorBoundary>
+            );
+        }
+ 
+        e.toolbar = [
+            <ErrorBoundary noop={true} key="follow-indicator">
+                <this.FollowIndicator />
+            </ErrorBoundary>,
+            e.toolbar,
+        ];
+    },
+});
